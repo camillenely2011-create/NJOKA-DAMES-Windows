@@ -1,0 +1,131 @@
+name: Construire NJOKA DAMES pour Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Récupérer le projet
+        uses: actions/checkout@v4
+
+      - name: Installer Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Installer WiX pour le programme d'installation
+        shell: powershell
+        run: |
+          if (-not (Get-Command candle.exe -ErrorAction SilentlyContinue)) {
+            choco install wixtoolset --yes --no-progress
+          }
+
+          $candle = Get-ChildItem `
+            'C:\Program Files (x86)\WiX Toolset*',
+            'C:\Program Files\WiX Toolset*' `
+            -Filter candle.exe -Recurse -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+
+          if (-not $candle) {
+            throw "WiX n'a pas été trouvé."
+          }
+
+          $candle.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Compiler le jeu et les tests
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build/classes | Out-Null
+
+          javac -encoding UTF-8 -d build/classes `
+            src/com/mbida/njokadames/engine/GameEngine.java `
+            src/com/mbida/njokadames/ai/DraughtsAI.java `
+            src/com/mbida/njokadames/desktop/Main.java
+
+          javac -encoding UTF-8 -cp build/classes -d build/classes `
+            src/com/mbida/njokadames/tests/*.java
+
+      - name: Exécuter les cinq séries de tests
+        shell: pwsh
+        run: |
+          java -cp build/classes com.mbida.njokadames.tests.EngineTest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          java -cp build/classes com.mbida.njokadames.tests.AITest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          java -cp build/classes com.mbida.njokadames.tests.CaptureBlockingTest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          java -cp build/classes com.mbida.njokadames.tests.PromotionCaptureTest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          java -cp build/classes com.mbida.njokadames.tests.DifficultyTest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Préparer le fichier JAR
+        shell: pwsh
+        run: |
+          jar --create `
+            --file build/NJOKA-DAMES-Windows.jar `
+            --main-class com.mbida.njokadames.desktop.Main `
+            -C build/classes .
+
+          New-Item -ItemType Directory -Force package-input | Out-Null
+          Copy-Item build/NJOKA-DAMES-Windows.jar package-input/
+
+      - name: Créer le programme portable
+        shell: pwsh
+        run: |
+          jpackage `
+            --type app-image `
+            --input package-input `
+            --dest portable `
+            --name NJOKA-DAMES `
+            --main-jar NJOKA-DAMES-Windows.jar `
+            --main-class com.mbida.njokadames.desktop.Main `
+            --app-version 1.0.0 `
+            --vendor "Mbida Mbida Camille"
+
+          Compress-Archive `
+            -Path portable/NJOKA-DAMES `
+            -DestinationPath NJOKA-DAMES-Portable.zip `
+            -Force
+
+      - name: Créer l'installateur Windows EXE
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+
+          jpackage `
+            --type exe `
+            --input package-input `
+            --dest dist `
+            --name NJOKA-DAMES `
+            --main-jar NJOKA-DAMES-Windows.jar `
+            --main-class com.mbida.njokadames.desktop.Main `
+            --app-version 1.0.0 `
+            --vendor "Mbida Mbida Camille" `
+            --win-menu `
+            --win-menu-group "NJOKA DAMES" `
+            --win-shortcut `
+            --win-per-user-install
+
+      - name: Publier les fichiers générés
+        uses: actions/upload-artifact@v4
+        with:
+          name: NJOKA-DAMES-Windows-1.0.0
+          path: |
+            dist/*.exe
+            NJOKA-DAMES-Portable.zip
+          if-no-files-found: error
+          retention-days: 30
