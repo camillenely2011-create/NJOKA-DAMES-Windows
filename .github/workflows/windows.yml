@@ -42,7 +42,7 @@ jobs:
           $candle.DirectoryName | Out-File `
             -FilePath $env:GITHUB_PATH -Append
 
-      - name: Compiler tous les composants
+      - name: Compiler les composants
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force build/classes | Out-Null
@@ -67,6 +67,8 @@ jobs:
       - name: Compiler les tests
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Force build/test-classes | Out-Null
+
           $tests = Get-ChildItem `
             src/com/mbida/njokadames/tests `
             -Filter *.java |
@@ -74,7 +76,7 @@ jobs:
 
           javac -encoding UTF-8 `
             -cp build/classes `
-            -d build/classes `
+            -d build/test-classes `
             $tests
 
           if ($LASTEXITCODE -ne 0) {
@@ -95,7 +97,7 @@ jobs:
           foreach ($test in $testNames) {
             Write-Host "===== $test ====="
 
-            java -cp build/classes `
+            java -cp "build/classes;build/test-classes" `
               "com.mbida.njokadames.tests.$test"
 
             if ($LASTEXITCODE -ne 0) {
@@ -117,7 +119,7 @@ jobs:
             build/NJOKA-DAMES-Windows.jar `
             package-input/
 
-      - name: Construire la version portable
+      - name: Construire l'application portable
         shell: pwsh
         run: |
           jpackage `
@@ -162,12 +164,187 @@ jobs:
             exit $LASTEXITCODE
           }
 
+      - name: Localiser MakeAppx du SDK Windows
+        shell: pwsh
+        run: |
+          $sdk = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
+
+          $makeappx = Get-ChildItem $sdk `
+            -Filter MakeAppx.exe `
+            -Recurse `
+            -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match '\\x64\\MakeAppx.exe$' } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+
+          if (-not $makeappx) {
+            throw "MakeAppx.exe introuvable dans le SDK Windows."
+          }
+
+          $makeappx.DirectoryName | Out-File `
+            -FilePath $env:GITHUB_PATH -Append
+
+          Write-Host "MakeAppx trouvé : $($makeappx.FullName)"
+
+      - name: Préparer les ressources MSIX
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Drawing
+
+          $source = "assets/NJOKA_Dames_favicon.png"
+          if (-not (Test-Path $source)) {
+            throw "Logo officiel introuvable : $source"
+          }
+
+          New-Item -ItemType Directory -Force msix/Assets | Out-Null
+          New-Item -ItemType Directory -Force dist | Out-Null
+
+          $original = [System.Drawing.Image]::FromFile(
+            (Resolve-Path $source).Path
+          )
+
+          function New-Logo {
+            param(
+              [int]$Width,
+              [int]$Height,
+              [string]$Output
+            )
+
+            $bitmap = [System.Drawing.Bitmap]::new($Width, $Height)
+            $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+
+            $graphics.Clear(
+              [System.Drawing.Color]::FromArgb(20, 35, 30)
+            )
+            $graphics.SmoothingMode = "HighQuality"
+            $graphics.InterpolationMode = "HighQualityBicubic"
+            $graphics.PixelOffsetMode = "HighQuality"
+
+            $scale = [Math]::Min(
+              $Width / $original.Width,
+              $Height / $original.Height
+            )
+
+            $drawWidth = [int]($original.Width * $scale)
+            $drawHeight = [int]($original.Height * $scale)
+            $x = [int](($Width - $drawWidth) / 2)
+            $y = [int](($Height - $drawHeight) / 2)
+
+            $graphics.DrawImage(
+              $original, $x, $y, $drawWidth, $drawHeight
+            )
+
+            $bitmap.Save(
+              $Output,
+              [System.Drawing.Imaging.ImageFormat]::Png
+            )
+
+            $graphics.Dispose()
+            $bitmap.Dispose()
+            Write-Host "Image créée : $Output ($Width x $Height)"
+          }
+
+          New-Logo 50 50 "msix/Assets/StoreLogo.png"
+          New-Logo 44 44 "msix/Assets/Square44x44Logo.png"
+          New-Logo 150 150 "msix/Assets/Square150x150Logo.png"
+          New-Logo 310 310 "msix/Assets/Square310x310Logo.png"
+          New-Logo 310 150 "msix/Assets/Wide310x150Logo.png"
+
+          $original.Dispose()
+
+      - name: Construire le manifeste MSIX
+        shell: pwsh
+        run: |
+          $manifest = @'
+          <?xml version="1.0" encoding="utf-8"?>
+          <Package
+            xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+            xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+            xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+            IgnorableNamespaces="uap rescap">
+
+            <Identity
+              Name="MbidaMbidaCamille.NJOKA-DAMES"
+              Publisher="CN=75FF66FB-1084-4E43-8A73-BE7C1A9CC9BB"
+              Version="1.0.0.0"
+              ProcessorArchitecture="x64" />
+
+            <Properties>
+              <DisplayName>NJOKA DAMES</DisplayName>
+              <PublisherDisplayName>Mbida Mbida Camille</PublisherDisplayName>
+              <Description>Jeu de dames internationales NJOKA DAMES.</Description>
+              <Logo>Assets\StoreLogo.png</Logo>
+            </Properties>
+
+            <Dependencies>
+              <TargetDeviceFamily
+                Name="Windows.Desktop"
+                MinVersion="10.0.17763.0"
+                MaxVersionTested="10.0.26100.0" />
+            </Dependencies>
+
+            <Resources>
+              <Resource Language="fr-FR" />
+            </Resources>
+
+            <Applications>
+              <Application
+                Id="NJOKADAMES"
+                Executable="NJOKA-DAMES.exe"
+                EntryPoint="Windows.FullTrustApplication">
+
+                <uap:VisualElements
+                  DisplayName="NJOKA DAMES"
+                  Description="Jeu de dames internationales"
+                  BackgroundColor="#14231E"
+                  Square150x150Logo="Assets\Square150x150Logo.png"
+                  Square44x44Logo="Assets\Square44x44Logo.png">
+
+                  <uap:DefaultTile
+                    Wide310x150Logo="Assets\Wide310x150Logo.png" />
+                </uap:VisualElements>
+              </Application>
+            </Applications>
+
+            <Capabilities>
+              <rescap:Capability Name="runFullTrust" />
+            </Capabilities>
+          </Package>
+          '@
+
+          Set-Content -Path msix/AppxManifest.xml `
+            -Value $manifest -Encoding UTF8
+
+      - name: Assembler le package MSIX
+        shell: pwsh
+        run: |
+          Copy-Item `
+            -Path "portable/NJOKA-DAMES/*" `
+            -Destination "msix" `
+            -Recurse `
+            -Force
+
+          if (-not (Test-Path "msix/NJOKA-DAMES.exe")) {
+            throw "L'exécutable NJOKA-DAMES.exe est absent du package."
+          }
+
+          MakeAppx.exe pack `
+            /d msix `
+            /p dist/NJOKA-DAMES-1.0.0-x64.msix `
+            /o
+
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+
       - name: Publier les fichiers générés
         uses: actions/upload-artifact@v4
         with:
           name: NJOKA-DAMES-Windows-1.0.0
           path: |
             dist/*.exe
+            dist/*.msix
             NJOKA-DAMES-Portable.zip
           if-no-files-found: error
           retention-days: 30
