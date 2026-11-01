@@ -3,149 +3,340 @@ package com.mbida.njokadames.desktop;
 import com.mbida.njokadames.engine.GameEngine;
 import com.mbida.njokadames.engine.GameEngine.Move;
 import com.mbida.njokadames.ai.DraughtsAI;
+import com.mbida.njokadames.desktop.ui.Theme;
+import com.mbida.njokadames.desktop.ui.BoardPanel;
+import com.mbida.njokadames.desktop.ui.PremiumButton;
+import com.mbida.njokadames.desktop.ui.PremiumPanel;
 
 import javax.swing.*;
+import javax.swing.border.EmptyBorder;
 import java.awt.*;
-import java.awt.event.*;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 public final class Main extends JFrame {
 
     private GameEngine game = new GameEngine();
+
     private final DraughtsAI ai = new DraughtsAI();
 
-    private final BoardPanel boardPanel = new BoardPanel();
+    private final BoardPanel boardPanel;
+
     private final JLabel status = new JLabel("À vous de jouer — Blancs");
     private final JLabel pieces = new JLabel();
+    private final JLabel turnIndicator = new JLabel("BLANCS");
 
     private final JComboBox<String> mode = new JComboBox<>(
             new String[]{"Deux joueurs", "Contre l'IA"}
     );
 
     private final JComboBox<String> difficulty = new JComboBox<>(
-            new String[]{"Facile", "Moyen", "Difficile", "Expert", "Maître"}
+            new String[]{
+                "Facile", "Moyen", "Difficile", "Expert", "Maître"
+            }
     );
 
     private List<Move> candidates = new ArrayList<>();
+
     private int selectedSquare = -1;
     private int pathIndex = 1;
     private boolean aiThinking = false;
 
-    private static final Color FOREST = new Color(24, 75, 53);
-    private static final Color GOLD = new Color(205, 164, 75);
-    private static final Color IVORY = new Color(244, 235, 211);
-    private static final Color DARK = new Color(105, 75, 54);
-
     public Main() {
-        super("NJOKA DAMES — Dames internationales");
+        super("NJOKA DAMES — Édition Premium");
 
+        boardPanel = new BoardPanel(this::handleSquare);
+
+        configureWindow();
+        buildInterface();
+        updateInformation();
+        refreshBoard();
+
+        setLocationRelativeTo(null);
+        setVisible(true);
+    }
+
+    private void configureWindow() {
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setMinimumSize(new Dimension(760, 760));
-        setLayout(new BorderLayout(12, 12));
-        getContentPane().setBackground(IVORY);
+        setMinimumSize(new Dimension(960, 760));
+        setSize(1180, 880);
 
-        JPanel header = new JPanel(new BorderLayout());
-        header.setBackground(FOREST);
-        header.setBorder(BorderFactory.createEmptyBorder(15, 20, 15, 20));
+        getContentPane().setBackground(Theme.BACKGROUND);
+        setLayout(new BorderLayout(14, 14));
+    }
+
+    private void buildInterface() {
+        add(buildHeader(), BorderLayout.NORTH);
+        add(buildMainContent(), BorderLayout.CENTER);
+        add(buildFooter(), BorderLayout.SOUTH);
+    }
+
+    private JPanel buildHeader() {
+        PremiumPanel header = new PremiumPanel(true);
+        header.setLayout(new BorderLayout(15, 5));
+        header.setBorder(new EmptyBorder(12, 22, 12, 22));
+
+        JPanel identity = new JPanel();
+        identity.setOpaque(false);
+        identity.setLayout(new BoxLayout(identity, BoxLayout.Y_AXIS));
 
         JLabel title = new JLabel("NJOKA DAMES");
-        title.setForeground(GOLD);
-        title.setFont(new Font("SansSerif", Font.BOLD, 27));
+        title.setFont(new Font("SansSerif", Font.BOLD, 30));
+        title.setForeground(Theme.GOLD_LIGHT);
 
-        JLabel subtitle = new JLabel("DAMES INTERNATIONALES • 10 × 10");
-        subtitle.setForeground(Color.WHITE);
-        subtitle.setFont(new Font("SansSerif", Font.PLAIN, 12));
+        JLabel subtitle = new JLabel(
+                "DAMES INTERNATIONALES  •  PLATEAU 10 × 10"
+        );
+        subtitle.setFont(Theme.SMALL);
+        subtitle.setForeground(Theme.MUTED);
 
-        JPanel heading = new JPanel(new GridLayout(2, 1));
-        heading.setOpaque(false);
-        heading.add(title);
-        heading.add(subtitle);
-        header.add(heading, BorderLayout.WEST);
+        identity.add(title);
+        identity.add(Box.createVerticalStrut(4));
+        identity.add(subtitle);
 
-        add(header, BorderLayout.NORTH);
+        JLabel edition = new JLabel("ÉDITION PREMIUM");
+        edition.setFont(Theme.BUTTON);
+        edition.setForeground(Theme.GOLD);
 
-        JPanel center = new JPanel(new BorderLayout());
-        center.setOpaque(false);
-        center.setBorder(BorderFactory.createEmptyBorder(8, 18, 8, 18));
-        center.add(boardPanel, BorderLayout.CENTER);
-        add(center, BorderLayout.CENTER);
+        header.add(identity, BorderLayout.WEST);
+        header.add(edition, BorderLayout.EAST);
 
-        JPanel bottom = new JPanel();
-        bottom.setLayout(new BoxLayout(bottom, BoxLayout.Y_AXIS));
-        bottom.setBackground(IVORY);
-        bottom.setBorder(BorderFactory.createEmptyBorder(8, 18, 18, 18));
+        JPanel wrapper = new JPanel(new BorderLayout());
+        wrapper.setOpaque(false);
+        wrapper.setBorder(new EmptyBorder(12, 16, 0, 16));
+        wrapper.add(header, BorderLayout.CENTER);
 
-        JPanel controls = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 5));
-        controls.setOpaque(false);
+        return wrapper;
+    }
 
-        JButton newGame = new JButton("Nouvelle partie");
-        newGame.addActionListener(e -> newGame());
+    private JPanel buildMainContent() {
+        JPanel content = new JPanel(new BorderLayout(16, 0));
+        content.setOpaque(false);
+        content.setBorder(new EmptyBorder(0, 16, 0, 16));
+
+        PremiumPanel boardCard = new PremiumPanel(true);
+        boardCard.setLayout(new BorderLayout());
+        boardCard.setBorder(new EmptyBorder(14, 14, 14, 14));
+
+        boardPanel.setPreferredSize(new Dimension(640, 640));
+        boardCard.add(boardPanel, BorderLayout.CENTER);
+
+        content.add(boardCard, BorderLayout.CENTER);
+        content.add(buildSidebar(), BorderLayout.EAST);
+
+        return content;
+    }
+
+    private JPanel buildSidebar() {
+        PremiumPanel sidebar = new PremiumPanel(false);
+        sidebar.setPreferredSize(new Dimension(275, 640));
+        sidebar.setLayout(new BoxLayout(sidebar, BoxLayout.Y_AXIS));
+        sidebar.setBorder(new EmptyBorder(20, 18, 20, 18));
+
+        JLabel section = makeLabel("CENTRE DE CONTRÔLE", Theme.GOLD);
+        sidebar.add(section);
+        sidebar.add(Box.createVerticalStrut(18));
+
+        sidebar.add(makeLabel("TOUR DE JEU", Theme.MUTED));
+        sidebar.add(Box.createVerticalStrut(7));
+
+        turnIndicator.setFont(new Font("SansSerif", Font.BOLD, 23));
+        turnIndicator.setForeground(Theme.GOLD_LIGHT);
+        turnIndicator.setAlignmentX(Component.LEFT_ALIGNMENT);
+        sidebar.add(turnIndicator);
+
+        sidebar.add(Box.createVerticalStrut(18));
+        sidebar.add(makeLabel("MODE DE JEU", Theme.MUTED));
+        sidebar.add(Box.createVerticalStrut(7));
+
+        styleCombo(mode);
+        sidebar.add(mode);
+
+        sidebar.add(Box.createVerticalStrut(15));
+        sidebar.add(makeLabel("DIFFICULTÉ DE L'IA", Theme.MUTED));
+        sidebar.add(Box.createVerticalStrut(7));
+
+        styleCombo(difficulty);
+        difficulty.setEnabled(false);
+        sidebar.add(difficulty);
+
+        sidebar.add(Box.createVerticalStrut(22));
+
+        PremiumButton newGameButton =
+                new PremiumButton("NOUVELLE PARTIE");
+
+        newGameButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+        newGameButton.setMaximumSize(new Dimension(
+                Integer.MAX_VALUE, 48
+        ));
+
+        newGameButton.addActionListener(e -> newGame());
+        sidebar.add(newGameButton);
+
+        sidebar.add(Box.createVerticalStrut(24));
+        sidebar.add(makeLabel("STATISTIQUES", Theme.GOLD));
+        sidebar.add(Box.createVerticalStrut(10));
+
+        pieces.setFont(Theme.BODY);
+        pieces.setForeground(Theme.TEXT);
+        pieces.setAlignmentX(Component.LEFT_ALIGNMENT);
+        sidebar.add(pieces);
+
+        sidebar.add(Box.createVerticalStrut(20));
+
+        PremiumPanel rules = new PremiumPanel(false);
+        rules.setLayout(new BoxLayout(rules, BoxLayout.Y_AXIS));
+        rules.setAlignmentX(Component.LEFT_ALIGNMENT);
+        rules.setMaximumSize(new Dimension(
+                Integer.MAX_VALUE, 150
+        ));
+
+        JLabel rulesTitle = makeLabel("RÈGLES", Theme.GOLD);
+        JLabel rulesText = new JLabel(
+                "<html><div style='width:190px'>"
+                + "• Prises obligatoires<br>"
+                + "• Prise du maximum de pièces<br>"
+                + "• Dames volantes<br>"
+                + "• Prises multiples"
+                + "</div></html>"
+        );
+
+        rulesText.setForeground(Theme.MUTED);
+        rulesText.setFont(Theme.SMALL);
+
+        rules.add(rulesTitle);
+        rules.add(Box.createVerticalStrut(9));
+        rules.add(rulesText);
+
+        sidebar.add(rules);
+
+        sidebar.add(Box.createVerticalGlue());
+
+        JLabel signature = makeLabel(
+                "NJOKA  •  STRATÉGIE  •  EXCELLENCE",
+                Theme.GOLD_DARK
+        );
+        signature.setFont(new Font("SansSerif", Font.BOLD, 9));
+        sidebar.add(signature);
 
         mode.addActionListener(e -> {
             difficulty.setEnabled(mode.getSelectedIndex() == 1);
             newGame();
         });
 
-        difficulty.setEnabled(false);
+        return sidebar;
+    }
 
-        controls.add(new JLabel("Mode :"));
-        controls.add(mode);
-        controls.add(new JLabel("Niveau IA :"));
-        controls.add(difficulty);
-        controls.add(newGame);
+    private JPanel buildFooter() {
+        PremiumPanel footer = new PremiumPanel(false);
+        footer.setLayout(new BorderLayout(12, 5));
+        footer.setBorder(new EmptyBorder(10, 18, 10, 18));
 
-        status.setFont(new Font("SansSerif", Font.BOLD, 16));
-        status.setForeground(FOREST);
-        status.setAlignmentX(Component.CENTER_ALIGNMENT);
+        status.setFont(Theme.BODY);
+        status.setForeground(Theme.GOLD_LIGHT);
 
-        pieces.setFont(new Font("SansSerif", Font.PLAIN, 13));
-        pieces.setAlignmentX(Component.CENTER_ALIGNMENT);
+        JLabel help = new JLabel(
+                "Sélectionnez une pièce puis sa destination."
+        );
+        help.setFont(Theme.SMALL);
+        help.setForeground(Theme.MUTED);
 
-        bottom.add(controls);
-        bottom.add(Box.createVerticalStrut(8));
-        bottom.add(status);
-        bottom.add(Box.createVerticalStrut(5));
-        bottom.add(pieces);
+        footer.add(status, BorderLayout.WEST);
+        footer.add(help, BorderLayout.EAST);
 
-        add(bottom, BorderLayout.SOUTH);
+        JPanel wrapper = new JPanel(new BorderLayout());
+        wrapper.setOpaque(false);
+        wrapper.setBorder(new EmptyBorder(0, 16, 12, 16));
+        wrapper.add(footer, BorderLayout.CENTER);
 
-        updateInformation();
+        return wrapper;
+    }
 
-        setLocationRelativeTo(null);
-        setVisible(true);
+    private JLabel makeLabel(String text, Color color) {
+        JLabel label = new JLabel(text);
+        label.setForeground(color);
+        label.setFont(Theme.BUTTON);
+        label.setAlignmentX(Component.LEFT_ALIGNMENT);
+        return label;
+    }
+
+    private void styleCombo(JComboBox<String> combo) {
+        combo.setFont(Theme.BODY);
+        combo.setForeground(Theme.TEXT);
+        combo.setBackground(Theme.SURFACE_LIGHT);
+        combo.setMaximumSize(new Dimension(
+                Integer.MAX_VALUE, 42
+        ));
+        combo.setAlignmentX(Component.LEFT_ALIGNMENT);
+    }
+
+    private void refreshBoard() {
+        boolean locked = aiThinking
+                || game.isGameOver()
+                || (mode.getSelectedIndex() == 1
+                && game.getCurrentPlayer() == GameEngine.BLACK);
+
+        boardPanel.setGameState(
+                game,
+                selectedSquare,
+                candidates,
+                pathIndex,
+                locked
+        );
     }
 
     private void newGame() {
         game = new GameEngine();
+
         candidates.clear();
         selectedSquare = -1;
         pathIndex = 1;
         aiThinking = false;
 
-        status.setText("Nouvelle partie — Blancs commencent");
+        status.setText("Nouvelle partie — Les Blancs commencent.");
+
         updateInformation();
-        boardPanel.repaint();
+        refreshBoard();
     }
 
     private void updateInformation() {
+        int white = game.countPieces(GameEngine.WHITE);
+        int black = game.countPieces(GameEngine.BLACK);
+
         pieces.setText(
-                "Pièces blanches : " + game.countPieces(GameEngine.WHITE)
-                + "     |     Pièces noires : "
-                + game.countPieces(GameEngine.BLACK)
+                "<html><div style='line-height:1.8'>"
+                + "Blancs : <b>" + white + "</b><br>"
+                + "Noirs : <b>" + black + "</b>"
+                + "</div></html>"
+        );
+
+        turnIndicator.setText(
+                game.getCurrentPlayer() == GameEngine.WHITE
+                ? "BLANCS"
+                : "NOIRS"
+        );
+
+        turnIndicator.setForeground(
+                game.getCurrentPlayer() == GameEngine.WHITE
+                ? Theme.GOLD_LIGHT
+                : Theme.MUTED
         );
     }
 
     private int selectedDifficulty() {
         switch (difficulty.getSelectedIndex()) {
-            case 0: return DraughtsAI.DIFFICULTY_EASY;
-            case 1: return DraughtsAI.DIFFICULTY_MEDIUM;
-            case 2: return DraughtsAI.DIFFICULTY_HARD;
-            case 3: return DraughtsAI.DIFFICULTY_EXPERT;
-            case 4: return DraughtsAI.DIFFICULTY_MASTER;
-            default: return DraughtsAI.DIFFICULTY_MEDIUM;
+            case 0:
+                return DraughtsAI.DIFFICULTY_EASY;
+            case 1:
+                return DraughtsAI.DIFFICULTY_MEDIUM;
+            case 2:
+                return DraughtsAI.DIFFICULTY_HARD;
+            case 3:
+                return DraughtsAI.DIFFICULTY_EXPERT;
+            case 4:
+                return DraughtsAI.DIFFICULTY_MASTER;
+            default:
+                return DraughtsAI.DIFFICULTY_MEDIUM;
         }
     }
 
@@ -187,9 +378,10 @@ public final class Main extends JFrame {
                 if (!hasContinuation) {
                     applySelectedMove(candidates.get(0));
                 } else {
-                    status.setText("Continuez votre prise...");
-                    boardPanel.repaint();
+                    status.setText("Continuez votre prise multiple...");
+                    refreshBoard();
                 }
+
                 return;
             }
         }
@@ -200,20 +392,21 @@ public final class Main extends JFrame {
     private void selectPiece(int square) {
         int row = square / GameEngine.SIZE;
         int col = square % GameEngine.SIZE;
+
         int piece = game.getPiece(row, col);
 
         if (piece == GameEngine.EMPTY
                 || Integer.signum(piece) != game.getCurrentPlayer()) {
+
             selectedSquare = -1;
             candidates.clear();
-            boardPanel.repaint();
+            refreshBoard();
             return;
         }
 
-        List<Move> legal = game.getLegalMoves();
         candidates = new ArrayList<>();
 
-        for (Move move : legal) {
+        for (Move move : game.getLegalMoves()) {
             if (move.getFrom() == square) {
                 candidates.add(move);
             }
@@ -225,10 +418,10 @@ public final class Main extends JFrame {
         } else {
             selectedSquare = square;
             pathIndex = 1;
-            status.setText("Sélectionnez une case de destination.");
+            status.setText("Choisissez une destination.");
         }
 
-        boardPanel.repaint();
+        refreshBoard();
     }
 
     private void applySelectedMove(Move move) {
@@ -239,7 +432,7 @@ public final class Main extends JFrame {
         pathIndex = 1;
 
         updateInformation();
-        boardPanel.repaint();
+        refreshBoard();
 
         if (game.isGameOver()) {
             showWinner();
@@ -252,25 +445,38 @@ public final class Main extends JFrame {
         } else {
             status.setText(
                     game.getCurrentPlayer() == GameEngine.WHITE
-                    ? "Au tour des Blancs"
-                    : "Au tour des Noirs"
+                    ? "Au tour des Blancs."
+                    : "Au tour des Noirs."
             );
         }
     }
 
     private void startAI() {
         aiThinking = true;
-        status.setText("L'IA réfléchit...");
-        boardPanel.repaint();
+        status.setText("L'intelligence artificielle réfléchit...");
+        refreshBoard();
 
-        SwingWorker<Move, Void> worker = new SwingWorker<Move, Void>() {
+        final GameEngine thinkingGame = game;
+        final int difficultyLevel = selectedDifficulty();
+
+        SwingWorker<Move, Void> worker =
+                new SwingWorker<Move, Void>() {
+
             @Override
             protected Move doInBackground() {
-                return ai.chooseMove(game, selectedDifficulty());
+                return ai.chooseMove(
+                        thinkingGame,
+                        difficultyLevel
+                );
             }
 
             @Override
             protected void done() {
+                // Une nouvelle partie a pu être lancée entre-temps.
+                if (game != thinkingGame) {
+                    return;
+                }
+
                 try {
                     Move move = get();
 
@@ -280,17 +486,20 @@ public final class Main extends JFrame {
 
                     aiThinking = false;
                     updateInformation();
-                    boardPanel.repaint();
+                    refreshBoard();
 
                     if (game.isGameOver()) {
                         showWinner();
                     } else {
-                        status.setText("À vous de jouer — Blancs");
+                        status.setText("À vous de jouer — Blancs.");
                     }
 
                 } catch (Exception ex) {
                     aiThinking = false;
-                    status.setText("Erreur pendant le calcul de l'IA.");
+                    status.setText(
+                            "Erreur pendant le calcul de l'IA."
+                    );
+                    refreshBoard();
                     ex.printStackTrace();
                 }
             }
@@ -307,6 +516,7 @@ public final class Main extends JFrame {
                 : "Les Noirs remportent la partie !";
 
         status.setText(message);
+        refreshBoard();
 
         JOptionPane.showMessageDialog(
                 this,
@@ -314,126 +524,6 @@ public final class Main extends JFrame {
                 "Fin de partie",
                 JOptionPane.INFORMATION_MESSAGE
         );
-    }
-
-    private final class BoardPanel extends JPanel {
-
-        BoardPanel() {
-            setPreferredSize(new Dimension(620, 620));
-            setBackground(IVORY);
-
-            addMouseListener(new MouseAdapter() {
-                @Override
-                public void mousePressed(MouseEvent e) {
-                    int size = Math.min(getWidth(), getHeight());
-                    int cell = size / GameEngine.SIZE;
-
-                    int offsetX = (getWidth() - size) / 2;
-                    int offsetY = (getHeight() - size) / 2;
-
-                    int col = (e.getX() - offsetX) / cell;
-                    int row = (e.getY() - offsetY) / cell;
-
-                    if (row >= 0 && row < 10 && col >= 0 && col < 10) {
-                        handleSquare(row * 10 + col);
-                    }
-                }
-            });
-        }
-
-        @Override
-        protected void paintComponent(Graphics graphics) {
-            super.paintComponent(graphics);
-
-            Graphics2D g = (Graphics2D) graphics.create();
-            g.setRenderingHint(
-                    RenderingHints.KEY_ANTIALIASING,
-                    RenderingHints.VALUE_ANTIALIAS_ON
-            );
-
-            int size = Math.min(getWidth(), getHeight());
-            int cell = size / GameEngine.SIZE;
-            int offsetX = (getWidth() - size) / 2;
-            int offsetY = (getHeight() - size) / 2;
-
-            Set<Integer> targets = new HashSet<>();
-
-            for (Move move : candidates) {
-                if (move.getPath().size() > pathIndex) {
-                    targets.add(move.getPath().get(pathIndex));
-                }
-            }
-
-            for (int r = 0; r < 10; r++) {
-                for (int c = 0; c < 10; c++) {
-                    int x = offsetX + c * cell;
-                    int y = offsetY + r * cell;
-
-                    boolean playable = GameEngine.isPlayable(r, c);
-                    g.setColor(playable ? DARK : IVORY);
-                    g.fillRect(x, y, cell, cell);
-
-                    int square = r * 10 + c;
-
-                    if (square == selectedSquare) {
-                        g.setColor(GOLD);
-                        g.setStroke(new BasicStroke(4));
-                        g.drawRect(x + 3, y + 3, cell - 6, cell - 6);
-                    }
-
-                    if (targets.contains(square)) {
-                        g.setColor(new Color(110, 190, 110, 190));
-                        g.fillOval(
-                                x + cell / 3,
-                                y + cell / 3,
-                                cell / 3,
-                                cell / 3
-                        );
-                    }
-
-                    int piece = game.getPiece(r, c);
-
-                    if (piece != GameEngine.EMPTY) {
-                        int margin = Math.max(4, cell / 9);
-                        int px = x + margin;
-                        int py = y + margin;
-                        int diameter = cell - 2 * margin;
-
-                        g.setColor(
-                                piece > 0
-                                ? new Color(245, 242, 226)
-                                : new Color(35, 38, 36)
-                        );
-
-                        g.fillOval(px, py, diameter, diameter);
-
-                        g.setColor(piece > 0 ? GOLD : new Color(150, 150, 150));
-                        g.setStroke(new BasicStroke(2));
-                        g.drawOval(px + 2, py + 2,
-                                diameter - 4, diameter - 4);
-
-                        if (Math.abs(piece) == 2) {
-                            g.setColor(piece > 0 ? FOREST : GOLD);
-                            g.setFont(new Font("SansSerif", Font.BOLD,
-                                    Math.max(12, cell / 3)));
-                            FontMetrics fm = g.getFontMetrics();
-                            String crown = "♛";
-                            g.drawString(
-                                    crown,
-                                    x + (cell - fm.stringWidth(crown)) / 2,
-                                    y + (cell + fm.getAscent() - fm.getDescent()) / 2
-                            );
-                        }
-                    }
-                }
-            }
-
-            g.setColor(FOREST);
-            g.setStroke(new BasicStroke(3));
-            g.drawRect(offsetX, offsetY, size, size);
-
-            g.dispose();
-        }
     }
 
     public static void main(String[] args) {

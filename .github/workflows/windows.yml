@@ -22,7 +22,7 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Installer WiX pour le programme d'installation
+      - name: Installer WiX Toolset
         shell: powershell
         run: |
           if (-not (Get-Command candle.exe -ErrorAction SilentlyContinue)) {
@@ -36,43 +36,74 @@ jobs:
             Select-Object -First 1
 
           if (-not $candle) {
-            throw "WiX n'a pas été trouvé."
+            throw "WiX Toolset est introuvable."
           }
 
-          $candle.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Append
+          $candle.DirectoryName | Out-File `
+            -FilePath $env:GITHUB_PATH -Append
 
-      - name: Compiler le jeu et les tests
+      - name: Compiler tous les composants
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force build/classes | Out-Null
 
-          javac -encoding UTF-8 -d build/classes `
-            src/com/mbida/njokadames/engine/GameEngine.java `
-            src/com/mbida/njokadames/ai/DraughtsAI.java `
-            src/com/mbida/njokadames/desktop/Main.java
+          $sources = Get-ChildItem src/com/mbida/njokadames `
+            -Recurse -Filter *.java |
+            Where-Object {
+              $_.FullName -notmatch '[\\/]tests[\\/]'
+            } |
+            ForEach-Object { $_.FullName }
 
-          javac -encoding UTF-8 -cp build/classes -d build/classes `
-            src/com/mbida/njokadames/tests/*.java
+          if ($sources.Count -eq 0) {
+            throw "Aucun fichier Java source trouvé."
+          }
 
-      - name: Exécuter les cinq séries de tests
+          javac -encoding UTF-8 -d build/classes $sources
+
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+      - name: Compiler les tests
         shell: pwsh
         run: |
-          java -cp build/classes com.mbida.njokadames.tests.EngineTest
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $tests = Get-ChildItem `
+            src/com/mbida/njokadames/tests `
+            -Filter *.java |
+            ForEach-Object { $_.FullName }
 
-          java -cp build/classes com.mbida.njokadames.tests.AITest
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          javac -encoding UTF-8 `
+            -cp build/classes `
+            -d build/classes `
+            $tests
 
-          java -cp build/classes com.mbida.njokadames.tests.CaptureBlockingTest
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
 
-          java -cp build/classes com.mbida.njokadames.tests.PromotionCaptureTest
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Exécuter les tests
+        shell: pwsh
+        run: |
+          $testNames = @(
+            "EngineTest",
+            "AITest",
+            "CaptureBlockingTest",
+            "PromotionCaptureTest",
+            "DifficultyTest"
+          )
 
-          java -cp build/classes com.mbida.njokadames.tests.DifficultyTest
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($test in $testNames) {
+            Write-Host "===== $test ====="
 
-      - name: Préparer le fichier JAR
+            java -cp build/classes `
+              "com.mbida.njokadames.tests.$test"
+
+            if ($LASTEXITCODE -ne 0) {
+              throw "Échec du test : $test"
+            }
+          }
+
+      - name: Créer le JAR exécutable
         shell: pwsh
         run: |
           jar --create `
@@ -81,9 +112,12 @@ jobs:
             -C build/classes .
 
           New-Item -ItemType Directory -Force package-input | Out-Null
-          Copy-Item build/NJOKA-DAMES-Windows.jar package-input/
 
-      - name: Créer le programme portable
+          Copy-Item `
+            build/NJOKA-DAMES-Windows.jar `
+            package-input/
+
+      - name: Construire la version portable
         shell: pwsh
         run: |
           jpackage `
@@ -96,12 +130,16 @@ jobs:
             --app-version 1.0.0 `
             --vendor "Mbida Mbida Camille"
 
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
           Compress-Archive `
             -Path portable/NJOKA-DAMES `
             -DestinationPath NJOKA-DAMES-Portable.zip `
             -Force
 
-      - name: Créer l'installateur Windows EXE
+      - name: Construire l'installateur EXE
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
@@ -119,6 +157,10 @@ jobs:
             --win-menu-group "NJOKA DAMES" `
             --win-shortcut `
             --win-per-user-install
+
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
 
       - name: Publier les fichiers générés
         uses: actions/upload-artifact@v4
